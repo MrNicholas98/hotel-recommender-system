@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hotel Recommender System</title>
+    <!-- Tailwind CSS CDN for easy styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f0f2f5;
+        }
+        .container {
+            max-width: 800px;
+        }
+        .card {
+            background-color: #ffffff;
+            border-radius: 0.75rem; /* rounded-xl */
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* shadow-md */
+        }
+        .btn-primary {
+            background-color: #4f46e5; /* indigo-600 */
+            color: #ffffff;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.5rem; /* rounded-lg */
+            font-weight: 600; /* font-semibold */
+            transition: background-color 0.3s ease;
+        }
+        .btn-primary:hover {
+            background-color: #4338ca; /* indigo-700 */
+        }
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #4f46e5;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: none; /* Hidden by default */
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+    <div class="container mx-auto p-6 bg-white rounded-xl shadow-lg">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">
+            Hotel Recommendation System
+        </h1>
+
+        <div class="mb-6 card p-4">
+            <label for="userSelect" class="block text-gray-700 text-lg font-semibold mb-2">
+                Select User:
+            </label>
+            <select id="userSelect" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800">
+                <option value="UserA">UserA</option>
+                <option value="UserB">UserB</option>
+                <option value="UserC">UserC</option>
+                <option value="UserD">UserD</option>
+                <option value="UserE">UserE</option>
+            </select>
+        </div>
+
+        <div class="text-center mb-6">
+            <button id="getRecommendationsBtn" class="btn-primary flex items-center justify-center mx-auto">
+                Get Recommendations
+                <div id="loader" class="loader ml-3"></div>
+            </button>
+        </div>
+
+        <div id="recommendationsOutput" class="card p-6 mt-6">
+            <h2 class="text-2xl font-semibold text-gray-800 mb-4">Recommended Hotels:</h2>
+            <div id="recommendationsList" class="space-y-4">
+                <!-- Recommendations will be loaded here -->
+                <p class="text-gray-500 text-center" id="initialMessage">
+                    Select a user and click 'Get Recommendations' to see results.
+                </p>
+            </div>
+            <p id="errorMessage" class="text-red-600 mt-4 text-center font-semibold hidden"></p>
+        </div>
+    </div>
+
+    <script>
+        // Base URL for your Flask API
+        const FLASK_API_URL = 'http://127.0.0.1:5000/recommend';
+
+        document.getElementById('getRecommendationsBtn').addEventListener('click', async () => {
+            const userSelect = document.getElementById('userSelect');
+            const selectedUserId = userSelect.value;
+            const recommendationsList = document.getElementById('recommendationsList');
+            const initialMessage = document.getElementById('initialMessage');
+            const errorMessage = document.getElementById('errorMessage');
+            const loader = document.getElementById('loader');
+            const getRecommendationsBtn = document.getElementById('getRecommendationsBtn');
+
+            // --- DEBUGGING: Check if elements are found ---
+            console.log('--- Button Clicked ---');
+            console.log('Selected User ID:', selectedUserId);
+            console.log('userSelect element:', userSelect);
+            console.log('recommendationsList element:', recommendationsList);
+            console.log('initialMessage element:', initialMessage);
+            console.log('errorMessage element:', errorMessage); // THIS IS THE KEY ONE TO CHECK
+            console.log('loader element:', loader);
+            console.log('getRecommendationsBtn element:', getRecommendationsBtn);
+            console.log('Clearing previous recommendations...');
+            // --- END DEBUGGING ---
+
+            // Clear all child elements from the recommendations list more robustly
+            if (recommendationsList) {
+                recommendationsList.innerHTML = '';
+            } else {
+                console.error("Error: 'recommendationsList' element not found.");
+            }
+
+            // Hide any previous error messages and initial message
+            if (errorMessage) {
+                errorMessage.classList.add('hidden');
+            } else {
+                console.error("Error: 'errorMessage' element not found.");
+            }
+            if (initialMessage) {
+                initialMessage.classList.add('hidden');
+            } else {
+                console.error("Error: 'initialMessage' element not found.");
+            }
+
+            // Show loader and disable button
+            if (loader) {
+                loader.style.display = 'block';
+            } else {
+                console.error("Error: 'loader' element not found.");
+            }
+            if (getRecommendationsBtn) {
+                getRecommendationsBtn.disabled = true;
+            } else {
+                console.error("Error: 'getRecommendationsBtn' element not found.");
+            }
+
+
+            try {
+                console.log('Fetching recommendations from API...');
+                const response = await fetch(FLASK_API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ user_id: selectedUserId, top_n: 5 }), // Request 5 recommendations
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    console.error('API Response Error:', errorData); // Log API error
+                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                }
+
+                const recommendations = await response.json();
+                console.log('Recommendations received:', recommendations); // Log received data
+
+                if (recommendations.length === 0) {
+                    if (recommendationsList) {
+                        recommendationsList.innerHTML = '<p class="text-gray-500 text-center">No recommendations found for this user.</p>';
+                    }
+                } else {
+                    recommendations.forEach(hotel => {
+                        const hotelCard = document.createElement('div');
+                        hotelCard.className = 'card p-4 border border-gray-200 rounded-lg';
+                        hotelCard.innerHTML = `
+                            <h3 class="text-xl font-semibold text-indigo-700">${hotel.name}</h3>
+                            <p class="text-gray-700"><strong>Location:</strong> ${hotel.location}</p>
+                            <p class="text-gray-700"><strong>Price Range:</strong> ${hotel.price_range}</p>
+                            <p class="text-gray-700"><strong>Star Rating:</strong> ${'⭐'.repeat(hotel.star_rating)}</p>
+                            <p class="text-gray-600 text-sm mt-1">${hotel.description}</p>
+                            <p class="text-gray-600 text-sm mt-1"><strong>Amenities:</strong> ${hotel.amenities}</p>
+                        `;
+                        if (recommendationsList) {
+                            recommendationsList.appendChild(hotelCard);
+                        }
+                        console.log('Appended hotel:', hotel.name); // Log each appended hotel
+                    });
+                }
+            } catch (error) {
+                console.error('Error fetching recommendations:', error);
+                if (errorMessage) {
+                    errorMessage.textContent = `Error: ${error.message}. Please ensure the Flask server is running.`;
+                    errorMessage.classList.remove('hidden');
+                }
+                if (recommendationsList) {
+                    recommendationsList.innerHTML = ''; // Clear any loading messages on error
+                }
+            } finally {
+                // Hide loader and re-enable button
+                if (loader) {
+                    loader.style.display = 'none';
+                }
+                if (getRecommendationsBtn) {
+                    getRecommendationsBtn.disabled = false;
+                }
+                console.log('--- Fetch process finished ---');
+            }
+        });
+    </script>
+</body>
+</html>

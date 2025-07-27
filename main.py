@@ -2,6 +2,12 @@ import pandas as pd
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from flask import Flask, request, jsonify # Import Flask components
+from flask_cors import CORS # Import CORS for cross-origin requests
+
+# --- Flask App Initialization ---
+app = Flask(__name__)
+CORS(app) # Enable CORS for all routes
 
 # --- Sample Hotel Data ---
 hotel_data = pd.DataFrame({
@@ -56,27 +62,19 @@ user_ratings = pd.DataFrame({
     'hotel_10': [np.nan, np.nan, 2, np.nan, 3]
 }).set_index('user_id')
 
-# --- CONTENT-BASED FILTERING (CBF) IMPLEMENTATION (from before) ---
+# --- CONTENT-BASED FILTERING (CBF) SETUP ---
 
-# Feature Preprocessing: Combine relevant features into a single string
 hotel_data['combined_features'] = hotel_data['location'] + ' ' + \
                                   hotel_data['price_range'] + ' ' + \
                                   hotel_data['amenities'] + ' ' + \
                                   hotel_data['star_rating'].astype(str) + ' ' + \
                                   hotel_data['description']
 
-# Text Vectorization using TF-IDF
 tfidf_vectorizer = TfidfVectorizer(stop_words='english')
 tfidf_matrix = tfidf_vectorizer.fit_transform(hotel_data['combined_features'])
-
-# Calculate Cosine Similarity between Hotels
 hotel_similarity_matrix = cosine_similarity(tfidf_matrix)
 
-# Function to get content-based recommendations
 def get_content_based_recommendations(hotel_id, top_n=5):
-    """
-    Generates content-based recommendations for a given hotel.
-    """
     idx = hotel_data[hotel_data['hotel_id'] == hotel_id].index[0]
     sim_scores = list(enumerate(hotel_similarity_matrix[idx]))
     sim_scores = sorted(sim_scores, key=lambda x: x[1], reverse=True)
@@ -84,98 +82,145 @@ def get_content_based_recommendations(hotel_id, top_n=5):
     hotel_indices = [i[0] for i in sim_scores]
     return hotel_data.iloc[hotel_indices]
 
-# --- COLLABORATIVE FILTERING (CF) IMPLEMENTATION ---
+# --- COLLABORATIVE FILTERING (CF) SETUP ---
 
-# Fill NaN values with 0 for similarity calculation (assuming 0 means no rating)
-# This is important because cosine_similarity does not handle NaN directly.
-# We are filling with 0, as absence of a rating doesn't necessarily mean a low rating,
-# but for similarity calculation, it implies no agreement/disagreement.
 user_ratings_filled = user_ratings.fillna(0)
-
-# Calculate User Similarity (using cosine similarity on user ratings)
-# This matrix tells us how similar each user is to every other user based on their rating patterns.
-# user_similarity_matrix[i][j] is the similarity between user i and user j.
 user_similarity_matrix = cosine_similarity(user_ratings_filled)
-
-# Convert the user similarity matrix into a DataFrame for easier indexing
 user_similarity_df = pd.DataFrame(user_similarity_matrix,
                                   index=user_ratings.index,
                                   columns=user_ratings.index)
 
-# Function to get collaborative-based recommendations
 def get_collaborative_based_recommendations(user_id, top_n=5):
-    """
-    Generates collaborative-based recommendations for a given user.
-
-    Args:
-        user_id (str): The ID of the user for whom to generate recommendations.
-        top_n (int): The number of top hotels to recommend.
-
-    Returns:
-        pandas.DataFrame: A DataFrame of recommended hotels, sorted by predicted rating.
-    """
-    # Get the index of the current user
     user_idx = user_ratings.index.get_loc(user_id)
-
-    # Get the similarity scores for this user with all other users
-    # We get the row corresponding to the current user from the similarity matrix
-    similar_users = user_similarity_df[user_id].drop(user_id) # Exclude user itself
-
-    # Get top similar users (e.g., top 3)
-    # We only consider users who have some similarity (score > 0)
-    # and sort them by similarity in descending order
+    similar_users = user_similarity_df[user_id].drop(user_id)
     top_similar_users = similar_users[similar_users > 0].sort_values(ascending=False)
 
-    # Initialize predicted ratings for unrated hotels
-    # We'll store potential recommendations with their predicted scores here
     predicted_ratings = pd.Series(dtype=float)
-
-    # Get hotels the current user has NOT rated (these are potential recommendations)
     user_rated_hotels = user_ratings.loc[user_id][user_ratings.loc[user_id].notna()].index.tolist()
     all_hotels_columns = [col for col in user_ratings.columns if col.startswith('hotel_')]
     unrated_hotels = [hotel for hotel in all_hotels_columns if hotel not in user_rated_hotels]
 
-    # For each unrated hotel, predict the rating
     for hotel_col in unrated_hotels:
         weighted_sum = 0
         similarity_sum = 0
-
-        # Iterate through top similar users
         for s_user_id, similarity_score in top_similar_users.items():
-            # Get the rating of the current hotel by the similar user
             s_user_rating = user_ratings.loc[s_user_id, hotel_col]
-
-            # If the similar user has rated this hotel, use their rating for prediction
-            if pd.notna(s_user_rating): # Check if rating is not NaN
+            if pd.notna(s_user_rating):
                 weighted_sum += (s_user_rating * similarity_score)
                 similarity_sum += similarity_score
 
         if similarity_sum > 0:
             predicted_ratings[hotel_col] = weighted_sum / similarity_sum
         else:
-            predicted_ratings[hotel_col] = 0 # No similar users rated this, so prediction is 0
+            predicted_ratings[hotel_col] = 0
 
-    # Sort predicted ratings in descending order and get top N
     recommended_hotel_cols = predicted_ratings.sort_values(ascending=False).head(top_n).index.tolist()
-
-    # Convert hotel column names (e.g., 'hotel_1') back to hotel_id (e.g., 1)
     recommended_hotel_ids = [int(col.split('_')[1]) for col in recommended_hotel_cols]
-
-    # Return the actual hotel data for these recommended IDs
     return hotel_data[hotel_data['hotel_id'].isin(recommended_hotel_ids)]
 
+# --- HYBRID RECOMMENDATION SYSTEM IMPLEMENTATION ---
 
-# --- TESTING COLLABORATIVE-BASED RECOMMENDATIONS ---
-print("\n--- Collaborative-Based Recommendations Test ---")
+def get_hybrid_recommendations(user_id, top_n=5, cbf_weight=0.5, cf_weight=0.5):
+    if not np.isclose(cbf_weight + cf_weight, 1.0):
+        print("Warning: CBF and CF weights do not sum to 1. Normalizing...")
+        total_weight = cbf_weight + cf_weight
+        cbf_weight /= total_weight
+        cf_weight /= total_weight
 
-# Example: Get recommendations for UserA
-# UserA has rated Hotel 1, 3, 6, 8
-recommended_hotels_cbf = get_collaborative_based_recommendations(user_id='UserA')
-print("\nRecommendations for UserA:")
-print(recommended_hotels_cbf[['hotel_id', 'name', 'location', 'star_rating']])
+    user_rated_hotels = user_ratings.loc[user_id][user_ratings.loc[user_id].notna()]
+    rated_hotel_ids = [int(col.split('_')[1]) for col in user_rated_hotels.index.tolist()]
+    all_hotel_ids = hotel_data['hotel_id'].tolist()
+    hybrid_scores = pd.Series(0.0, index=all_hotel_ids)
 
-# Example: Get recommendations for UserB
-# UserB has rated Hotel 2, 4, 9
-recommended_hotels_cbf_2 = get_collaborative_based_recommendations(user_id='UserB')
-print("\nRecommendations for UserB:")
-print(recommended_hotels_cbf_2[['hotel_id', 'name', 'location', 'star_rating']])
+    cbf_candidate_scores = {}
+    for rated_hotel_col, rating in user_rated_hotels.items():
+        rated_hotel_id = int(rated_hotel_col.split('_')[1])
+        idx = hotel_data[hotel_data['hotel_id'] == rated_hotel_id].index[0]
+        current_hotel_sims = pd.Series(hotel_similarity_matrix[idx], index=hotel_data['hotel_id'])
+        weighted_sims = current_hotel_sims * rating
+
+        for hotel_id, score in weighted_sims.items():
+            if hotel_id not in rated_hotel_ids:
+                cbf_candidate_scores[hotel_id] = max(cbf_candidate_scores.get(hotel_id, 0), score)
+
+    if cbf_candidate_scores:
+        max_cbf_score = max(cbf_candidate_scores.values())
+        if max_cbf_score > 0:
+            for hotel_id in cbf_candidate_scores:
+                cbf_candidate_scores[hotel_id] /= max_cbf_score
+
+    for hotel_id, score in cbf_candidate_scores.items():
+        hybrid_scores[hotel_id] += cbf_weight * score
+
+    cf_predicted_ratings = pd.Series(dtype=float)
+    user_idx = user_ratings.index.get_loc(user_id)
+    similar_users = user_similarity_df[user_id].drop(user_id)
+    top_similar_users = similar_users[similar_users > 0].sort_values(ascending=False)
+    unrated_hotels_cols = [col for col in user_ratings.columns if col.startswith('hotel_') and int(col.split('_')[1]) not in rated_hotel_ids]
+
+    for hotel_col in unrated_hotels_cols:
+        weighted_sum = 0
+        similarity_sum = 0
+        for s_user_id, similarity_score in top_similar_users.items():
+            s_user_rating = user_ratings.loc[s_user_id, hotel_col]
+            if pd.notna(s_user_rating):
+                weighted_sum += (s_user_rating * similarity_score)
+                similarity_sum += similarity_score
+
+        if similarity_sum > 0:
+            cf_predicted_ratings[hotel_col] = weighted_sum / similarity_sum
+        else:
+            cf_predicted_ratings[hotel_col] = 0
+
+    if cf_predicted_ratings.max() > 0:
+        cf_predicted_ratings = cf_predicted_ratings / cf_predicted_ratings.max()
+
+    for hotel_col, score in cf_predicted_ratings.items():
+        hotel_id = int(hotel_col.split('_')[1])
+        hybrid_scores[hotel_id] += cf_weight * score
+
+    hybrid_scores = hybrid_scores.drop(rated_hotel_ids, errors='ignore')
+    recommended_hotel_ids = hybrid_scores.sort_values(ascending=False).head(top_n).index.tolist()
+    return hotel_data[hotel_data['hotel_id'].isin(recommended_hotel_ids)]
+
+# --- FLASK API ENDPOINT ---
+
+@app.route('/recommend', methods=['POST'])
+def recommend():
+    """
+    API endpoint to get hybrid hotel recommendations for a given user.
+    Expects a JSON payload with 'user_id' and optional 'top_n'.
+    """
+    data = request.get_json()
+    user_id = data.get('user_id')
+    top_n = data.get('top_n', 5) # Default to 5 recommendations
+
+    if not user_id:
+        return jsonify({"error": "user_id is required"}), 400
+
+    # Check if user_id exists in our sample data
+    if user_id not in user_ratings.index:
+        return jsonify({"error": f"User ID '{user_id}' not found in sample data. Available users: {list(user_ratings.index)}"}), 404
+
+    try:
+        # Get recommendations using our hybrid model
+        recommendations_df = get_hybrid_recommendations(user_id=user_id, top_n=top_n)
+
+        # Convert DataFrame to a list of dictionaries for JSON response
+        recommendations_list = recommendations_df.to_dict(orient='records')
+
+        return jsonify(recommendations_list)
+
+    except Exception as e:
+        # Basic error handling for unexpected issues
+        return jsonify({"error": str(e)}), 500
+
+# --- Main execution block for running the Flask app ---
+if __name__ == '__main__':
+    # To run the Flask app, use 'flask run' command in terminal
+    # For development, you can run it directly like this, but 'flask run' is preferred
+    # app.run(debug=True, port=5000) # debug=True enables auto-reloading and better error messages
+    print("\n--- Flask Server Ready ---")
+    print("To run the Flask server, open a NEW terminal in this folder and type:")
+    print("flask --app main run --debug --port 5000")
+    print("Then, access the web interface or send POST requests to http://127.0.0.1:5000/recommend")
