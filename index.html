@@ -3,205 +3,242 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Hotel Recommender System</title>
-    <!-- Tailwind CSS CDN for easy styling -->
+    <title>Hotel Recommender</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
         body {
             font-family: 'Inter', sans-serif;
-            background-color: #f0f2f5;
-        }
-        .container {
-            max-width: 800px;
-        }
-        .card {
-            background-color: #ffffff;
-            border-radius: 0.75rem; /* rounded-xl */
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* shadow-md */
-        }
-        .btn-primary {
-            background-color: #4f46e5; /* indigo-600 */
-            color: #ffffff;
-            padding: 0.75rem 1.5rem;
-            border-radius: 0.5rem; /* rounded-lg */
-            font-weight: 600; /* font-semibold */
-            transition: background-color 0.3s ease;
-        }
-        .btn-primary:hover {
-            background-color: #4338ca; /* indigo-700 */
-        }
-        .loader {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #4f46e5;
-            border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            animation: spin 1s linear infinite;
-            display: none; /* Hidden by default */
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
         }
     </style>
 </head>
-<body class="flex items-center justify-center min-h-screen p-4">
-    <div class="container mx-auto p-6 bg-white rounded-xl shadow-lg">
-        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">
-            Hotel Recommendation System
-        </h1>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen p-4">
 
-        <div class="mb-6 card p-4">
-            <label for="userSelect" class="block text-gray-700 text-lg font-semibold mb-2">
-                Select User:
-            </label>
-            <select id="userSelect" class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-800">
-                <option value="UserA">UserA</option>
-                <option value="UserB">UserB</option>
-                <option value="UserC">UserC</option>
-                <option value="UserD">UserD</option>
-                <option value="UserE">UserE</option>
+    <div id="app" class="bg-white p-8 rounded-xl shadow-lg w-full max-w-2xl transform transition-all duration-300">
+        <h1 class="text-3xl font-bold text-center text-gray-800 mb-6">Hotel Recommender</h1>
+        
+        <p class="text-gray-600 text-center mb-6">Select a hotel and let's find some similar recommendations for you.</p>
+
+        <div class="mb-6">
+            <label for="hotel-select" class="block text-gray-700 font-semibold mb-2">Select a Hotel:</label>
+            <select id="hotel-select" class="w-full p-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors">
+                <option value="" disabled selected>-- Choose a hotel --</option>
             </select>
         </div>
 
-        <div class="text-center mb-6">
-            <button id="getRecommendationsBtn" class="btn-primary flex items-center justify-center mx-auto">
-                Get Recommendations
-                <div id="loader" class="loader ml-3"></div>
-            </button>
+        <button id="recommend-btn" class="w-full bg-blue-600 text-white font-bold py-3 px-6 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-all duration-200 shadow-md transform hover:scale-105" disabled>
+            Get Recommendations
+        </button>
+        
+        <div id="loading" class="hidden text-center mt-6">
+            <div class="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-current border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]" role="status">
+                <span class="!absolute !-m-px !h-px !w-px !overflow-hidden !whitespace-nowrap !border-0 !p-0 ![clip:rect(0,0,0,0)]">Loading...</span>
+            </div>
+            <p class="text-gray-500 mt-2">Finding recommendations...</p>
         </div>
 
-        <div id="recommendationsOutput" class="card p-6 mt-6">
-            <h2 class="text-2xl font-semibold text-gray-800 mb-4">Recommended Hotels:</h2>
-            <div id="recommendationsList" class="space-y-4">
-                <!-- Recommendations will be loaded here -->
-                <p class="text-gray-500 text-center" id="initialMessage">
-                    Select a user and click 'Get Recommendations' to see results.
-                </p>
+        <div id="results" class="hidden mt-8">
+            <h2 class="text-2xl font-bold text-gray-800 mb-4">Recommended Hotels</h2>
+            <div id="recommendation-list" class="space-y-4">
+                <!-- Recommendations will be injected here -->
             </div>
-            <p id="errorMessage" class="text-red-600 mt-4 text-center font-semibold hidden"></p>
+        </div>
+
+        <div id="error-message" class="hidden text-red-500 text-center mt-6">
+            <p>An error occurred. Please try again.</p>
         </div>
     </div>
 
     <script>
-        // Base URL for your Flask API
-        const FLASK_API_URL = 'http://127.0.0.1:5000/recommend';
+        document.addEventListener('DOMContentLoaded', () => {
+            const hotelSelect = document.getElementById('hotel-select');
+            const recommendBtn = document.getElementById('recommend-btn');
+            const resultsDiv = document.getElementById('results');
+            const recommendationList = document.getElementById('recommendation-list');
+            const loadingIndicator = document.getElementById('loading');
+            const errorMessage = document.getElementById('error-message');
 
-        document.getElementById('getRecommendationsBtn').addEventListener('click', async () => {
-            const userSelect = document.getElementById('userSelect');
-            const selectedUserId = userSelect.value;
-            const recommendationsList = document.getElementById('recommendationsList');
-            const initialMessage = document.getElementById('initialMessage');
-            const errorMessage = document.getElementById('errorMessage');
-            const loader = document.getElementById('loader');
-            const getRecommendationsBtn = document.getElementById('getRecommendationsBtn');
+            let df = null;
+            let cosine_sim = null;
+            
+            // This is the core recommendation logic from your main.py, translated to JavaScript
+            function get_recommendations(hotel_name, cosine_sim_matrix, df_data) {
+                if (!df_data || !cosine_sim_matrix) {
+                    console.error("Data not loaded yet.");
+                    return [];
+                }
 
-            // --- DEBUGGING: Check if elements are found ---
-            console.log('--- Button Clicked ---');
-            console.log('Selected User ID:', selectedUserId);
-            console.log('userSelect element:', userSelect);
-            console.log('recommendationsList element:', recommendationsList);
-            console.log('initialMessage element:', initialMessage);
-            console.log('errorMessage element:', errorMessage); // THIS IS THE KEY ONE TO CHECK
-            console.log('loader element:', loader);
-            console.log('getRecommendationsBtn element:', getRecommendationsBtn);
-            console.log('Clearing previous recommendations...');
-            // --- END DEBUGGING ---
-
-            // Clear all child elements from the recommendations list more robustly
-            if (recommendationsList) {
-                recommendationsList.innerHTML = '';
-            } else {
-                console.error("Error: 'recommendationsList' element not found.");
-            }
-
-            // Hide any previous error messages and initial message
-            if (errorMessage) {
-                errorMessage.classList.add('hidden');
-            } else {
-                console.error("Error: 'errorMessage' element not found.");
-            }
-            if (initialMessage) {
-                initialMessage.classList.add('hidden');
-            } else {
-                console.error("Error: 'initialMessage' element not found.");
-            }
-
-            // Show loader and disable button
-            if (loader) {
-                loader.style.display = 'block';
-            } else {
-                console.error("Error: 'loader' element not found.");
-            }
-            if (getRecommendationsBtn) {
-                getRecommendationsBtn.disabled = true;
-            } else {
-                console.error("Error: 'getRecommendationsBtn' element not found.");
-            }
-
-
-            try {
-                console.log('Fetching recommendations from API...');
-                const response = await fetch(FLASK_API_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ user_id: selectedUserId, top_n: 5 }), // Request 5 recommendations
+                const indices = {};
+                df_data.forEach((row, index) => {
+                    indices[row.hotel_name] = index;
                 });
 
-                if (!response.ok) {
-                    const errorData = await response.json();
-                    console.error('API Response Error:', errorData); // Log API error
-                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                if (!indices[hotel_name]) {
+                    console.error("Hotel not found.");
+                    return [];
                 }
 
-                const recommendations = await response.json();
-                console.log('Recommendations received:', recommendations); // Log received data
+                const idx = indices[hotel_name];
+                const sim_scores = cosine_sim_matrix[idx];
+                const sim_scores_with_indices = sim_scores.map((score, i) => [i, score]).sort((a, b) => b[1] - a[1]);
+                
+                const sim_scores_without_self = sim_scores_with_indices.slice(1, 11);
 
-                if (recommendations.length === 0) {
-                    if (recommendationsList) {
-                        recommendationsList.innerHTML = '<p class="text-gray-500 text-center">No recommendations found for this user.</p>';
-                    }
-                } else {
-                    recommendations.forEach(hotel => {
-                        const hotelCard = document.createElement('div');
-                        hotelCard.className = 'card p-4 border border-gray-200 rounded-lg';
-                        hotelCard.innerHTML = `
-                            <h3 class="text-xl font-semibold text-indigo-700">${hotel.name}</h3>
-                            <p class="text-gray-700"><strong>Location:</strong> ${hotel.location}</p>
-                            <p class="text-gray-700"><strong>Price Range:</strong> ${hotel.price_range}</p>
-                            <p class="text-gray-700"><strong>Star Rating:</strong> ${'⭐'.repeat(hotel.star_rating)}</p>
-                            <p class="text-gray-600 text-sm mt-1">${hotel.description}</p>
-                            <p class="text-gray-600 text-sm mt-1"><strong>Amenities:</strong> ${hotel.amenities}</p>
-                        `;
-                        if (recommendationsList) {
-                            recommendationsList.appendChild(hotelCard);
-                        }
-                        console.log('Appended hotel:', hotel.name); // Log each appended hotel
+                const hotel_indices = sim_scores_without_self.map(item => item[0]);
+
+                const recommended_hotels = [];
+                hotel_indices.forEach(i => {
+                    recommended_hotels.push({
+                        hotel_name: df_data[i].hotel_name,
+                        address: df_data[i].address,
+                        city: df_data[i].city,
+                        state: df_data[i].state,
+                        country: df_data[i].country,
+                        score: sim_scores_without_self.find(item => item[0] === i)[1]
                     });
-                }
-            } catch (error) {
-                console.error('Error fetching recommendations:', error);
-                if (errorMessage) {
-                    errorMessage.textContent = `Error: ${error.message}. Please ensure the Flask server is running.`;
+                });
+                return recommended_hotels;
+            }
+
+            // Function to generate and display a recommendation card
+            function createRecommendationCard(hotel) {
+                const card = document.createElement('div');
+                card.className = 'bg-gray-50 p-4 rounded-md shadow-sm border border-gray-200';
+                card.innerHTML = `
+                    <h3 class="font-bold text-lg text-gray-800">${hotel.hotel_name}</h3>
+                    <p class="text-sm text-gray-600">${hotel.address}, ${hotel.city}, ${hotel.state}, ${hotel.country}</p>
+                    <p class="text-sm text-blue-500 font-medium mt-1">Similarity Score: ${hotel.score.toFixed(4)}</p>
+                `;
+                return card;
+            }
+            
+            // Now we use the data object directly instead of fetching it.
+            function initializeData() {
+                try {
+                    df = data.df;
+                    cosine_sim = data.cosine_sim;
+
+                    // Populate the dropdown menu with hotel names
+                    df.forEach(hotel => {
+                        const option = document.createElement('option');
+                        option.value = hotel.hotel_name;
+                        option.textContent = hotel.hotel_name;
+                        hotelSelect.appendChild(option);
+                    });
+
+                    // Enable the button once data is loaded
+                    recommendBtn.disabled = false;
+                    recommendBtn.textContent = "Get Recommendations";
+                } catch (error) {
+                    console.error("Failed to initialize data:", error);
+                    errorMessage.textContent = "An internal error occurred. Please check the code.";
                     errorMessage.classList.remove('hidden');
                 }
-                if (recommendationsList) {
-                    recommendationsList.innerHTML = ''; // Clear any loading messages on error
-                }
-            } finally {
-                // Hide loader and re-enable button
-                if (loader) {
-                    loader.style.display = 'none';
-                }
-                if (getRecommendationsBtn) {
-                    getRecommendationsBtn.disabled = false;
-                }
-                console.log('--- Fetch process finished ---');
             }
+            
+            // Event listener for the recommendation button
+            recommendBtn.addEventListener('click', () => {
+                const selectedHotel = hotelSelect.value;
+                if (!selectedHotel) {
+                    return;
+                }
+
+                // Show loading indicator and hide previous results
+                loadingIndicator.classList.remove('hidden');
+                resultsDiv.classList.add('hidden');
+                errorMessage.classList.add('hidden');
+
+                // Simulate a slight delay to show the loading state
+                setTimeout(() => {
+                    try {
+                        const recommendations = get_recommendations(selectedHotel, cosine_sim, df);
+                        
+                        recommendationList.innerHTML = '';
+                        if (recommendations.length > 0) {
+                            recommendations.forEach(hotel => {
+                                recommendationList.appendChild(createRecommendationCard(hotel));
+                            });
+                            resultsDiv.classList.remove('hidden');
+                        } else {
+                            errorMessage.textContent = "No recommendations found for this hotel.";
+                            errorMessage.classList.remove('hidden');
+                        }
+                    } catch (e) {
+                        console.error(e);
+                        errorMessage.textContent = "An error occurred while getting recommendations.";
+                        errorMessage.classList.remove('hidden');
+                    } finally {
+                        loadingIndicator.classList.add('hidden');
+                    }
+                }, 500); // 500ms delay
+            });
+
+            // Handle dropdown change to enable/disable button
+            hotelSelect.addEventListener('change', () => {
+                recommendBtn.disabled = !hotelSelect.value;
+            });
+            
+            // Initialize data loading
+            initializeData();
         });
+
+        // The pre-computed data from your project. This is a simplified example.
+        // In a real-world scenario, you would have a much larger dataset here.
+        // For demonstration, we'll embed the necessary hotel data and the similarity matrix.
+        const data = {
+            "df": [
+                {
+                    "hotel_name": "The Plaza Hotel",
+                    "address": "768 5th Ave",
+                    "city": "New York",
+                    "state": "NY",
+                    "country": "USA"
+                },
+                {
+                    "hotel_name": "Grand Hyatt New York",
+                    "address": "109 E 42nd St",
+                    "city": "New York",
+                    "state": "NY",
+                    "country": "USA"
+                },
+                {
+                    "hotel_name": "Four Seasons Hotel New York",
+                    "address": "57 E 57th St",
+                    "city": "New York",
+                    "state": "NY",
+                    "country": "USA"
+                },
+                {
+                    "hotel_name": "Hyatt Regency San Francisco",
+                    "address": "5 Embarcadero Ctr",
+                    "city": "San Francisco",
+                    "state": "CA",
+                    "country": "USA"
+                },
+                {
+                    "hotel_name": "W Hotel San Francisco",
+                    "address": "181 3rd St",
+                    "city": "San Francisco",
+                    "state": "CA",
+                    "country": "USA"
+                },
+                {
+                    "hotel_name": "Ritz-Carlton San Francisco",
+                    "address": "600 Stockton St",
+                    "city": "San Francisco",
+                    "state": "CA",
+                    "country": "USA"
+                }
+            ],
+            "cosine_sim": [
+                [1.0000, 0.4500, 0.7000, 0.1000, 0.0500, 0.0800],
+                [0.4500, 1.0000, 0.3500, 0.1200, 0.0700, 0.0600],
+                [0.7000, 0.3500, 1.0000, 0.0900, 0.0400, 0.1100],
+                [0.1000, 0.1200, 0.0900, 1.0000, 0.5500, 0.6000],
+                [0.0500, 0.0700, 0.0400, 0.5500, 1.0000, 0.4500],
+                [0.0800, 0.0600, 0.1100, 0.6000, 0.4500, 1.0000]
+            ]
+        };
     </script>
 </body>
 </html>
